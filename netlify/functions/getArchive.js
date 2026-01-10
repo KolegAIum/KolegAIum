@@ -1,54 +1,69 @@
-import { initializeApp } from "firebase/app";
-import { getDatabase, ref, get } from "firebase/database";
+export const handler = async (event, context) => {
+  const dbUrl = process.env.FIREBASE_DB_URL;
 
-const firebaseConfig = {
-  apiKey:            process.env.FIREBASE_API_KEY,
-  authDomain:        process.env.FIREBASE_AUTH_DOMAIN,
-  databaseURL:       process.env.FIREBASE_DATABASE_URL,
-  projectId:         process.env.FIREBASE_PROJECT_ID,
-  storageBucket:     process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId:             process.env.FIREBASE_APP_ID
-};
+  if (!dbUrl) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: "Firebase URL nije konfigurisan u Environment Variables." })
+    };
+  }
 
-const app = initializeApp(firebaseConfig);
-const db  = getDatabase(app);
-
-export default async (req, context) => {
-  const headers = {
-    "Access-Control-Allow-Origin": "*",          // ili tvoj domen
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Content-Type": "application/json"
-  };
-
-  // CORS pre‑flight
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers });
+  // Podrška za CORS preflight
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+      },
+      body: ""
+    };
   }
 
   try {
-    const snap = await get(ref(db, "archive"));
-    if (!snap.exists()) {
-      return new Response(JSON.stringify({ archives: [] }), {
-        status: 200,
-        headers
-      });
+    const base = dbUrl.replace(/\/+$/, "");
+    const url = base.endsWith(".json") ? base : `${base}/archive.json`;
+
+    // Use global fetch if available; otherwise try to dynamically import node-fetch
+    let _fetch = globalThis.fetch;
+    if (!(_fetch)) {
+      try {
+        const mod = await import('node-fetch');
+        _fetch = mod.default ?? mod;
+      } catch (err) {
+        return {
+          statusCode: 500,
+          body: JSON.stringify({ error: 'fetch nije dostupan i ne mogu da importujem node-fetch: ' + (err.message || err) })
+        };
+      }
     }
 
-    const archives = [];
-    snap.forEach(child => archives.push({ key: child.key, ...child.val() }));
-    archives.sort((a, b) => b.createdAt - a.createdAt);
+    const response = await _fetch(url);
+    if (!response.ok) {
+      const text = await response.text();
+      return {
+        statusCode: response.status,
+        headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+        body: JSON.stringify({ error: `Firebase returned ${response.status}: ${text}` })
+      };
+    }
 
-    return new Response(JSON.stringify({ archives }), {
-      status: 200,
-      headers
-    });
-  } catch (e) {
-    console.error(e);
-    return new Response(
-      JSON.stringify({ error: "Failed to fetch archives" }),
-      { status: 500, headers }
-    );
+    const data = await response.json();
+
+    return {
+      statusCode: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ archives: data ?? {} })
+    };
+  } catch (error) {
+    return {
+      statusCode: 500,
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ error: "Greška pri preuzimanju: " + (error.message || error) })
+    };
   }
 };
