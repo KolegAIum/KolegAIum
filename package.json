@@ -1,0 +1,16 @@
+{
+  "name": "kolegaium-archive",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",                     // omogućava `import …` u funkciji
+  "scripts": {
+    "dev": "netlify dev",               // (lokalno, ako ikada želiš)
+    "build": "echo \"nothing to build\"" // nema build‑a, samo statički fajlovi
+  },
+  "dependencies": {
+    "firebase": "^12.0.0"               // Firebase client SDK (koristi se u funkciji)
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.0.0"
+  }
+}
