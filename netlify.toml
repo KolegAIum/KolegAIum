@@ -1,0 +1,6 @@
+[build]
+
+  publish = "."               
+
+  # Folder u kojem su server‑less funkcije.
+  functions = "netlify/functions"
