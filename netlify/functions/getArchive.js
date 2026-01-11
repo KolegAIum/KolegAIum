@@ -1,5 +1,6 @@
+// netlify/functions/getArchive.js
 export const handler = async (event, context) => {
-  const dbUrl = process.env.FIREBASE_DB_URL;
+  const dbUrl = process.env.FIREBASE_DB_URL;   // ili FIREBASE_DATABASE_URL – kako god postaviš varijablu
 
   if (!dbUrl) {
     return {
@@ -8,8 +9,8 @@ export const handler = async (event, context) => {
     };
   }
 
-  // Podrška za CORS preflight
-  if (event.httpMethod === 'OPTIONS') {
+  // CORS pre‑flight
+  if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 204,
       headers: {
@@ -25,31 +26,28 @@ export const handler = async (event, context) => {
     const base = dbUrl.replace(/\/+$/, "");
     const url = base.endsWith(".json") ? base : `${base}/archive.json`;
 
-    // Use global fetch if available; otherwise try to dynamically import node-fetch
-    let _fetch = globalThis.fetch;
-    if (!(_fetch)) {
-      try {
-        const mod = await import('node-fetch');
-        _fetch = mod.default ?? mod;
-      } catch (err) {
-        return {
-          statusCode: 500,
-          body: JSON.stringify({ error: 'fetch nije dostupan i ne mogu da importujem node-fetch: ' + (err.message || err) })
-        };
-      }
-    }
+    // Netlify‑runtime već ima fetch; fallback na node‑fetch za starije runtimes
+    const _fetch = globalThis.fetch ?? (await import("node-fetch")).default;
 
     const response = await _fetch(url);
     if (!response.ok) {
-      const text = await response.text();
+      const txt = await response.text();
       return {
         statusCode: response.status,
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
-        body: JSON.stringify({ error: `Firebase returned ${response.status}: ${text}` })
+        body: JSON.stringify({ error: `Firebase returned ${response.status}: ${txt}` })
       };
     }
 
-    const data = await response.json();
+    const rawData = await response.json();               // { "-Mxyz": {...}, "-Mabc": {...} }
+
+    // Pretvori objekt u niz [{key,…value}]
+    const archives = rawData
+      ? Object.entries(rawData).map(([key, value]) => ({ key, ...value }))
+      : [];
+
+    // Sortiraj po createdAt (najnovije prvo) – opciono
+    archives.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
     return {
       statusCode: 200,
@@ -57,13 +55,14 @@ export const handler = async (event, context) => {
         "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ archives: data ?? {} })
+      body: JSON.stringify({ archives })
     };
-  } catch (error) {
+  } catch (err) {
+    console.error("Fetch error:", err);
     return {
       statusCode: 500,
       headers: { "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ error: "Greška pri preuzimanju: " + (error.message || error) })
+      body: JSON.stringify({ error: "Greška pri preuzimanju: " + (err.message || err) })
     };
   }
 };
